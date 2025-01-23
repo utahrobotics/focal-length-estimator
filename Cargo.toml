@@ -1,0 +1,12 @@
+[package]
+name = "focal-length-estimator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+apriltag = "0.4.0"
+apriltag-image = "0.1.0"
+clap = { version = "4.5.27", features = ["derive"] }
+image = { version = "0.25.5", features = ["png"] }
+nokhwa = { version = "0.10.7", features = ["input-native"] }
