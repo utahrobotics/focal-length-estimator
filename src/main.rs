@@ -1,4 +1,4 @@
-use apriltag::{families::TagStandard41h12, DetectorBuilder, Family, Image};
+use apriltag::{families::TagStandard41h12, DetectorBuilder, Family, Image, TagParams};
 use apriltag_image::{image::ImageBuffer, ImageExt};
 use nokhwa::{pixel_format::LumaFormat, utils::{CameraIndex, RequestedFormat, RequestedFormatType}, Camera};
 
@@ -60,13 +60,14 @@ fn main() -> anyhow::Result<()> {
     std::thread::sleep(std::time::Duration::from_secs_f64(with_delay));
     println!("Capturing frame");
 
+    camera.open_stream()?;
     let frame = camera.frame()?;
     println!("Captured frame");
     let decoded = frame.decode_image::<LumaFormat>()?;
 
     decoded.save("test.png")?;
 
-    // Convert to correct version of image
+    // Convert to older version of image crate
     let decoded = ImageBuffer::from_vec(decoded.width(), decoded.height(), decoded.into_raw()).unwrap();
     let img = Image::from_image_buffer(&decoded);
     let mut detections = detector.detect(&img);
@@ -86,7 +87,25 @@ fn main() -> anyhow::Result<()> {
             .sum();
         let average_image_side_length = sum / 4.0 * pixel_width;
         let focal_length = average_image_side_length / tag_width * tag_distance;
-        println!("Estimated Focal length: {:.1}mm or {:.0}px", focal_length * 1000.0, focal_length / pixel_width);
+        let fx = focal_length / pixel_width;
+        println!("Estimated Focal length: {:.1}mm or {:.0}px", focal_length * 1000.0, fx);
+        let Some(pose) = detection.estimate_tag_pose(&TagParams {
+            tagsize: tag_width,
+            fx,
+            fy: fx,
+            cx: img.width() as f64 / 2.0,
+            cy: img.height() as f64 / 2.0,
+        }) else {
+            println!("Failed to estimate pose");
+            return Ok(());
+        };
+        let &[x, y, z] = pose.translation().data() else {
+            unreachable!();
+        };
+        let apparent_distance = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
+        println!("Apparent distance: {:.2}m", apparent_distance);
+        println!("Error: {:.1}%", (apparent_distance - tag_distance).abs() / tag_distance * 100.0);
+        
     } else {
         println!("No tags found");
     }
