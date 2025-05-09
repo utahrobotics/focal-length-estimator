@@ -7,17 +7,17 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    /// Tag distance in meters
+    /// First tag's distance in meters
     #[clap(long)]
-    tag_distance: f64,
+    tag_distance1: f64,
 
-    /// The width of the tag in meters
+    /// The width of the first tag in meters
     #[clap(long)]
     tag_width: f64,
 
-    /// The width of a pixel in micrometers
-    #[clap(short, long)]
-    pixel_width: f64,
+    /// Second tag's distance in meters
+    #[clap(long)]
+    tag_distance2: f64,
 
     /// The index of the camera to use as it appears to the OS
     #[clap(short, long, default_value = "0")]
@@ -30,15 +30,12 @@ struct Cli {
 
 fn main() -> anyhow::Result<()> {
     let Cli {
-        tag_distance,
+        tag_distance1,
         tag_width,
-        mut pixel_width,
+        tag_distance2,
         camera_index,
         with_delay,
     } = Cli::parse();
-
-    // Convert pixel width from micrometers to meters
-    pixel_width /= 1_000_000.0;
 
     let mut detector = DetectorBuilder::new()
         .add_family_bits(TagStandard41h12::default(), 1)
@@ -47,12 +44,11 @@ fn main() -> anyhow::Result<()> {
 
     let index = CameraIndex::Index(camera_index); 
     let requested = RequestedFormat::new::<LumaFormat>(RequestedFormatType::AbsoluteHighestResolution);
-    let mut camera = Camera::new(index, requested)?;
 
     let stdin = std::io::stdin();
 
     // wait for enter
-    println!("Press Enter to capture a frame");
+    println!("Press Enter to capture the first frame");
     let mut input = String::new();
     stdin.read_line(&mut input)?;
 
@@ -60,54 +56,100 @@ fn main() -> anyhow::Result<()> {
     std::thread::sleep(std::time::Duration::from_secs_f64(with_delay));
     println!("Capturing frame");
 
+    let mut camera = Camera::new(index.clone(), requested)?;
     camera.open_stream()?;
-    let frame = camera.frame()?;
+    let mut frame = camera.frame()?;
+    drop(camera);
     println!("Captured frame");
-    let decoded = frame.decode_image::<LumaFormat>()?;
+    let decoded1 = frame.decode_image::<LumaFormat>()?;
+    decoded1.save("test1.png")?;
 
-    decoded.save("test.png")?;
+    // wait for enter
+    println!("Press Enter to capture the second frame");
+    stdin.read_line(&mut input)?;
+
+    // wait for delay
+    std::thread::sleep(std::time::Duration::from_secs_f64(with_delay));
+    println!("Capturing frame");
+
+    let mut camera = Camera::new(index, requested)?;
+    camera.open_stream()?;
+    frame = camera.frame()?;
+    drop(camera);
+    println!("Captured frame");
+    let decoded2 = frame.decode_image::<LumaFormat>()?;
+    decoded2.save("test2.png")?;
 
     // Convert to older version of image crate
-    let decoded = ImageBuffer::from_vec(decoded.width(), decoded.height(), decoded.into_raw()).unwrap();
-    let img = Image::from_image_buffer(&decoded);
-    let mut detections = detector.detect(&img);
+    let decoded1 = ImageBuffer::from_vec(decoded1.width(), decoded1.height(), decoded1.into_raw()).unwrap();
+    let img1 = Image::from_image_buffer(&decoded1);
 
-    if detections.len() > 1 {
-        println!("Multiple tags found");
-    } else if let Some(detection) = detections.pop() {
-        println!("Tag ID: {}", detection.id());
-        let mut corners = detection.corners().to_vec();
-        corners.push(corners[0]);
-        let sum: f64 = corners
-            .windows(2)
-            .map(|window| {
-                let [p1, p2] = window else { unreachable!() };
-                ((p2[0] - p1[0]).powi(2) + (p2[1] - p1[1]).powi(2)).sqrt()
-            })
-            .sum();
-        let average_image_side_length = sum / 4.0 * pixel_width;
-        let focal_length = average_image_side_length / tag_width * tag_distance;
-        let fx = focal_length / pixel_width;
-        println!("Estimated Focal length: {:.1}mm or {:.0}px", focal_length * 1000.0, fx);
-        let Some(pose) = detection.estimate_tag_pose(&TagParams {
+    // Convert to older version of image crate
+    let decoded2 = ImageBuffer::from_vec(decoded2.width(), decoded2.height(), decoded2.into_raw()).unwrap();
+    let img2 = Image::from_image_buffer(&decoded2);
+
+    let mut detections1 = detector.detect(&img1);
+    let mut detections2 = detector.detect(&img2);
+    if detections1.len() > 1 {
+        println!("Multiple tags found in first image");
+        return Ok(());
+    }
+    if detections2.len() > 1 {
+        println!("Multiple tags found in second image");
+        return Ok(());
+    }
+    if detections1.is_empty() {
+        println!("No tags found in first image");
+        return Ok(());
+    }
+    if detections2.is_empty() {
+        println!("No tags found in second image");
+        return Ok(());
+    }
+    loop {
+        input.clear();
+        println!("\nType a guess for focal length px");
+        stdin.read_line(&mut input)?;
+        let Ok(fx) = input.trim().parse() else {
+            eprintln!("Failed to read f64");
+            continue;
+        };
+        let detection1 = detections1.last().unwrap();
+        let Some(pose) = detection1.estimate_tag_pose(&TagParams {
             tagsize: tag_width,
             fx,
             fy: fx,
-            cx: img.width() as f64 / 2.0,
-            cy: img.height() as f64 / 2.0,
+            cx: img1.width() as f64 / 2.0,
+            cy: img1.height() as f64 / 2.0,
         }) else {
             println!("Failed to estimate pose");
-            return Ok(());
+            continue;
         };
         let &[x, y, z] = pose.translation().data() else {
             unreachable!();
         };
-        let apparent_distance = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
-        println!("Apparent distance: {:.2}m", apparent_distance);
-        println!("Error: {:.1}%", (apparent_distance - tag_distance).abs() / tag_distance * 100.0);
-        
-    } else {
-        println!("No tags found");
+        let mut apparent_distance = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
+        println!("Apparent distance 1: {:.2}m", apparent_distance);
+        println!("Error 1: {:.1}%", (apparent_distance - tag_distance1).abs() / tag_distance1 * 100.0);
+
+        let detection2 = detections2.last().unwrap();
+        let Some(pose) = detection2.estimate_tag_pose(&TagParams {
+            tagsize: tag_width,
+            fx,
+            fy: fx,
+            cx: img2.width() as f64 / 2.0,
+            cy: img2.height() as f64 / 2.0,
+        }) else {
+            println!("Failed to estimate pose");
+            continue;
+        };
+        let &[x, y, z] = pose.translation().data() else {
+            unreachable!();
+        };
+        apparent_distance = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
+        println!("Apparent distance 2: {:.2}m", apparent_distance);
+        println!("Error 2: {:.1}%", (apparent_distance - tag_distance2).abs() / tag_distance2 * 100.0);
     }
+
     Ok(())
 }
