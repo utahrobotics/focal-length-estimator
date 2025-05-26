@@ -1,6 +1,10 @@
 use apriltag::{families::TagStandard41h12, DetectorBuilder, Family, Image, TagParams};
 use apriltag_image::{image::ImageBuffer, ImageExt};
-use nokhwa::{pixel_format::LumaFormat, utils::{CameraIndex, RequestedFormat, RequestedFormatType}, Camera};
+use nokhwa::{
+    pixel_format::LumaFormat,
+    utils::{CameraIndex, RequestedFormat, RequestedFormatType},
+    Camera,
+};
 
 use clap::Parser;
 
@@ -42,8 +46,9 @@ fn main() -> anyhow::Result<()> {
         .add_family_bits(Family::Tag36h11(Default::default()), 1)
         .build()?;
 
-    let index = CameraIndex::Index(camera_index); 
-    let requested = RequestedFormat::new::<LumaFormat>(RequestedFormatType::AbsoluteHighestResolution);
+    let index = CameraIndex::Index(camera_index);
+    let requested =
+        RequestedFormat::new::<LumaFormat>(RequestedFormatType::AbsoluteHighestResolution);
 
     let stdin = std::io::stdin();
 
@@ -81,11 +86,13 @@ fn main() -> anyhow::Result<()> {
     decoded2.save("test2.png")?;
 
     // Convert to older version of image crate
-    let decoded1 = ImageBuffer::from_vec(decoded1.width(), decoded1.height(), decoded1.into_raw()).unwrap();
+    let decoded1 =
+        ImageBuffer::from_vec(decoded1.width(), decoded1.height(), decoded1.into_raw()).unwrap();
     let img1 = Image::from_image_buffer(&decoded1);
 
     // Convert to older version of image crate
-    let decoded2 = ImageBuffer::from_vec(decoded2.width(), decoded2.height(), decoded2.into_raw()).unwrap();
+    let decoded2 =
+        ImageBuffer::from_vec(decoded2.width(), decoded2.height(), decoded2.into_raw()).unwrap();
     let img2 = Image::from_image_buffer(&decoded2);
 
     let mut detections1 = detector.detect(&img1);
@@ -130,7 +137,10 @@ fn main() -> anyhow::Result<()> {
         };
         let mut apparent_distance = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
         println!("Apparent distance 1: {:.2}m", apparent_distance);
-        println!("Error 1: {:.1}%", (apparent_distance - tag_distance1).abs() / tag_distance1 * 100.0);
+        println!(
+            "Error 1: {:.1}%",
+            (apparent_distance - tag_distance1).abs() / tag_distance1 * 100.0
+        );
 
         let detection2 = detections2.last().unwrap();
         let Some(pose) = detection2.estimate_tag_pose(&TagParams {
@@ -148,7 +158,10 @@ fn main() -> anyhow::Result<()> {
         };
         apparent_distance = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
         println!("Apparent distance 2: {:.2}m", apparent_distance);
-        println!("Error 2: {:.1}%", (apparent_distance - tag_distance2).abs() / tag_distance2 * 100.0);
+        println!(
+            "Error 2: {:.1}%",
+            (apparent_distance - tag_distance2).abs() / tag_distance2 * 100.0
+        );
     }
 
     Ok(())

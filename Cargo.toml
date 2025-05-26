@@ -5,8 +5,11 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.95"
-apriltag = "0.4.0"
-apriltag-image = "0.1.0"
+
+#fork of the new april tag, apriltag-image and apriltag-nalgebra are sub modules of the workspace
+apriltag = { path="apriltag-rust/apriltag"}
+apriltag-image = { path="apriltag-rust/apriltag-image"}
+apriltag-nalgebra = { path="apriltag-rust/apriltag-nalgebra"}
 clap = { version = "4.5.27", features = ["derive"] }
 image = { version = "0.25.5", features = ["png"] }
 nokhwa = { version = "0.10.7", features = ["input-native"] }
